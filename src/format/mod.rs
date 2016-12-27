@@ -14,7 +14,7 @@ pub mod network;
 
 use std::ptr;
 use std::slice;
-use std::io::{Seek, Read, SeekFrom};
+use std::io::{Seek, Read, Write, SeekFrom};
 use std::path::Path;
 use std::ffi::{CString, CStr};
 use std::str::from_utf8_unchecked;
@@ -222,6 +222,28 @@ pub fn output<P: AsRef<Path>>(path: &P) -> Result<context::Output, Error> {
 	}
 }
 
+/// Initialize a context with custom output instead of a file.
+pub fn output_io<O: AVOutput>(output: O) -> Result<context::Output, Error> {
+	unsafe {
+		let mut ps   = avformat_alloc_context();
+		let     path = ptr::null();
+		assert!(!ps.is_null(), "Could not allocate AVFormat context");
+
+		(*ps).pb = output_into_context(output);
+
+		match avformat_alloc_output_context2(&mut ps, ptr::null_mut(), ptr::null(), path) {
+			0 => {
+				match avio_open(&mut (*ps).pb, path, AVIO_FLAG_WRITE) {
+					0 => Ok(context::Output::wrap(ps)),
+					e => Err(Error::from(e))
+				}
+			}
+
+			e => Err(Error::from(e))
+		}
+	}
+}
+
 pub fn output_with<P: AsRef<Path>>(path: &P, options: Dictionary) -> Result<context::Output, Error> {
 	unsafe {
 		let mut ps     = ptr::null_mut();
@@ -351,11 +373,43 @@ fn input_into_context<I: AVInput>(input: I) -> *mut AVIOContext  {
 	}
 }
 
+fn output_into_context<O: AVOutput>(output: O) -> *mut AVIOContext  {
+	unsafe {
+		let buffer_size = O::buffer_size();
+		let buffer = av_malloc(buffer_size as usize * mem::size_of::<uint8_t>()) as _;
+		let write_flag = 1; // Make buffer writable for ffmpeg
+		let read_packet = mem::transmute(0 as *const c_void); // should maybe be Option in ffmpeg_sys
+		let write_packet = ffi_write_packet::<O>;
+		let seek = ffi_seek::<O>;
+		let this = Box::into_raw(Box::new(output)) as *mut c_void;
+		let avio_ctx = avio_alloc_context(
+			buffer,
+			buffer_size,
+			write_flag,
+			this,
+			read_packet,
+			write_packet,
+			seek
+		);
+
+		assert!(!avio_ctx.is_null(), "Could not allocate AVIO context");
+
+		avio_ctx
+	}
+}
+
 extern fn ffi_read_packet<I: AVInput>(this: *mut c_void, buf: *mut uint8_t, buf_size: c_int) -> c_int {
 	let this = unsafe { &mut *(this as *mut I) };
 	let buf = unsafe { slice::from_raw_parts_mut(buf, buf_size as usize) };
 	let eof = -1;
 	this.read_packet(buf).map(|n_read| n_read as c_int).unwrap_or(eof)
+}
+
+extern fn ffi_write_packet<O: AVOutput>(this: *mut c_void, buf: *mut uint8_t, buf_size: c_int) -> c_int {
+	let this = unsafe { &mut *(this as *mut O) };
+	let buf = unsafe { slice::from_raw_parts(buf as *const _, buf_size as usize) };
+	let eof = -1;
+	this.write_packet(buf).map(|n_written| n_written as c_int).unwrap_or(eof)
 }
 
 extern fn ffi_seek<S: AVSeek>(this: *mut c_void, offset: int64_t, whence: c_int) -> int64_t {
@@ -407,5 +461,11 @@ impl AVSeek for File {
 impl AVInput for File {
 	fn read_packet(&mut self, buf: &mut [u8]) -> Option<usize> {
 		self.read(buf).ok()
+	}
+}
+
+impl AVOutput for File {
+	fn write_packet(&mut self, buf: &[u8]) -> Option<usize> {
+		self.write(buf).ok()
 	}
 }
