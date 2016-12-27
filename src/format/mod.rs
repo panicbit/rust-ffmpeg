@@ -311,11 +311,25 @@ pub trait AVInput: AVSeek + Sized + Send + 'static {
 	fn buffer_size() -> c_int { 4 * 1024 }
 }
 
+/// Implementors of AVOutput can be used as custom output source.
+pub trait AVOutput: AVSeek + Sized + Send + 'static {
+	/// Write the buffer to the output.
+	/// Returns the number of bytes written.
+	/// `None` or `Some(0)` indicates failure.
+	fn write_packet(&mut self, buf: &[u8]) -> Option<usize>;
+	/// The buffer size is very important for performance.
+	/// For protocols with fixed blocksize it should be set to this blocksize.
+	/// For others a typical size is a cache page, e.g. 4kb.
+	///
+	/// Default: 4kb.
+	fn buffer_size() -> c_int { 4 * 1024 }
+}
+
 fn input_into_context<I: AVInput>(input: I) -> *mut AVIOContext  {
 	unsafe {
 		let buffer_size = I::buffer_size();
 		let buffer = av_malloc(buffer_size as usize * mem::size_of::<uint8_t>()) as _;
-		let write_flag = 0; // Make buffer writable
+		let write_flag = 0; // Make buffer read-only for ffmpeg
 		let read_packet = ffi_read_packet::<I>;
 		let write_packet = mem::transmute(0 as *const c_void); // should maybe be Option in ffmpeg_sys
 		let seek = ffi_seek::<I>;
