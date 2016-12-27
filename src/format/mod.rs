@@ -345,8 +345,13 @@ extern fn ffi_read_packet<I: AVInput>(this: *mut c_void, buf: *mut uint8_t, buf_
 
 extern fn ffi_seek<S: AVSeek>(this: *mut c_void, offset: int64_t, whence: c_int) -> int64_t {
 	let this = unsafe { &mut *(this as *mut S) };
+
+	// According to the doc AVSEEK_SIZE is ORed with whence.
+	if offset & AVSEEK_SIZE as int64_t == AVSEEK_SIZE as int64_t {
+		return this.size().and_then(u64_into_int64_t).unwrap_or(-1);
+	}
+
 	let pos = match whence {
-		AVSEEK_SIZE => return this.size().and_then(u64_into_int64_t).unwrap_or(-1),
 		libc::SEEK_SET => match int64_t_into_u64(offset) {
 			Some(offset) => SeekFrom::Start(offset),
 			None => return -1,
