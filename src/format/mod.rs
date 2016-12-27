@@ -185,12 +185,13 @@ pub fn input_with<P: AsRef<Path>>(path: &P, options: Dictionary) -> Result<conte
 /// Initialize a context with custom input instead of a file.
 pub fn input_io<I: AVInput>(input: I) -> Result<context::Input, Error> {
 	unsafe {
-		let mut ps    = avformat_alloc_context();
+		let mut ps   = avformat_alloc_context();
+		let     path = ptr::null();
 		assert!(!ps.is_null(), "Could not allocate AVFormat context");
 
 		(*ps).pb = input_into_context(input);
 
-		match avformat_open_input(&mut ps, ptr::null(), ptr::null_mut(), ptr::null_mut()) {
+		match avformat_open_input(&mut ps, path, ptr::null_mut(), ptr::null_mut()) {
 			0 => {
 				match avformat_find_stream_info(ps, ptr::null_mut()) {
 					r if r >= 0 => Ok(context::Input::wrap(ps)),
