@@ -223,22 +223,17 @@ pub fn output<P: AsRef<Path>>(path: &P) -> Result<context::Output, Error> {
 }
 
 /// Initialize a context with custom output instead of a file.
-pub fn output_io<O: AVOutput>(output: O) -> Result<context::Output, Error> {
+/// The name is used to guess the format.
+pub fn output_named_io<O: AVOutput>(output: O, name: &str) -> Result<context::Output, Error> {
 	unsafe {
-		let mut ps   = avformat_alloc_context();
-		let     path = ptr::null();
-		assert!(!ps.is_null(), "Could not allocate AVFormat context");
+		let mut ps   = ptr::null_mut();
+		let     name = CString::new(name).unwrap();
 
-		(*ps).pb = output_into_context(output);
-
-		match avformat_alloc_output_context2(&mut ps, ptr::null_mut(), ptr::null(), path) {
+		match avformat_alloc_output_context2(&mut ps, ptr::null_mut(), ptr::null(), name.as_ptr()) {
 			0 => {
-				match avio_open(&mut (*ps).pb, path, AVIO_FLAG_WRITE) {
-					0 => Ok(context::Output::wrap(ps)),
-					e => Err(Error::from(e))
-				}
-			}
-
+				(*ps).pb = output_into_context(output);
+				Ok(context::Output::wrap(ps))
+			},
 			e => Err(Error::from(e))
 		}
 	}
