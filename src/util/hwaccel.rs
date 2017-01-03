@@ -4,6 +4,7 @@ use std::ffi::CStr;
 use codec;
 use util::format;
 use util::media;
+use std::fmt;
 
 /// A registred hardware accelerator.
 #[derive(Copy,Clone)]
@@ -45,6 +46,17 @@ impl HWAccel {
         unsafe {
             format::Pixel::from((*self.as_ptr()).pix_fmt)
         }
+    }
+}
+
+impl fmt::Debug for HWAccel {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        write!(f, "HWAccel {{ name: {name:?}, type: {kind:?}, codec: {codec:?}, pixel_format: {pix_fmt:?} }}",
+            name = self.name(),
+            kind = self.kind(),
+            codec = self.codec_id(),
+            pix_fmt = self.pixel_format()
+        )
     }
 }
 
